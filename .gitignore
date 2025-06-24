@@ -28,6 +28,7 @@ wheels/
 # Fichiers de configuration
 .env
 .venv
+.streamlit/secrets.toml
 pip-log.txt
 pip-delete-this-directory.txt
 
@@ -52,6 +53,6 @@ Thumbs.db
 
 # Fichiers temporaires
 *.tmp
-*.temp 
+*.temp
 
 SECRETS_SETUP.md
