@@ -16,7 +16,8 @@ def load_data(file_path = "excel_files/excel_poc.xlsx"):
             "Train Id", "Point départ", "Point arrivée", "Date départ théorique", 
             "Date départ replanifiée", "Date départ réelle", "Date arrivée théorique", 
             "Date arrivée replanifiée", "Date arrivée réelle", "Nb Théo.", "Nb Comm.", "Nb Réel"
-        ]].rename(columns={
+        ]]
+        df_temp = df_temp.rename(mapper={
             "Train Id": "train_id",
             "Point départ": "departure_point", 
             "Point arrivée": "arrival_point",
@@ -29,7 +30,7 @@ def load_data(file_path = "excel_files/excel_poc.xlsx"):
             "Nb Théo.": "theoretical_nb_wagons",
             "Nb Comm.": "comm_nb_wagons",
             "Nb Réel": "actual_nb_wagons"
-        })
+        }, axis='columns')
         df_temp['type'] = sheet_name
         df = pd.concat([df, df_temp], ignore_index=True)
 
