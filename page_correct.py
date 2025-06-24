@@ -28,7 +28,8 @@ def main():
         
         with st.form("correction_form"):
             # Liste déroulante pour le lieu
-            locations = get_locations()
+            with st.spinner("Chargement des lieux..."):
+                locations = get_locations()
             selected_location = st.selectbox("Lieu", locations, index=locations.index(st.session_state.editing_event['LOCATION']) if st.session_state.editing_event else 0)
             
             # Zone de sélection de date
@@ -83,12 +84,14 @@ def main():
                         
                         if st.session_state.editing_event:
                             # Modifier l'événement existant
-                            success = update_event(st.session_state.editing_event['ID'], selected_location, event_datetime, nb_wagons, relative, comment, wagon_type)
+                            with st.spinner("Modification en cours..."):
+                                success = update_event(st.session_state.editing_event['ID'], selected_location, event_datetime, nb_wagons, relative, comment, wagon_type)
                             if success:
                                 st.success("Correction modifiée avec succès!")
                         else:
                             # Ajouter un nouvel événement
-                            success = add_event(selected_location, event_datetime, nb_wagons, relative, comment, wagon_type)
+                            with st.spinner("Ajout en cours..."):
+                                success = add_event(selected_location, event_datetime, nb_wagons, relative, comment, wagon_type)
                             if success:
                                 st.success("Correction ajoutée avec succès!")
                         
@@ -110,7 +113,8 @@ def main():
     st.write("#### Historique des corrections")
     
     # Récupération et affichage des événements
-    events_df = get_events()
+    with st.spinner("Chargement de l'historique..."):
+        events_df = get_events()
     
     if not events_df.empty:
         for _, event in events_df.iterrows():
@@ -157,11 +161,12 @@ def main():
                     
                     # Bouton supprimer
                     if st.button("🗑️", key=f"delete_{event['ID']}", help="Supprimer cet événement"):
-                        if delete_event(event['ID']):
-                            st.success("Événement supprimé!")
-                            st.rerun()
-                        else:
-                            st.error("Erreur lors de la suppression")
+                        with st.spinner("Suppression en cours..."):
+                            if delete_event(event['ID']):
+                                st.success("Événement supprimé!")
+                                st.rerun()
+                            else:
+                                st.error("Erreur lors de la suppression")
     else:
         st.info("Aucun événement de correction trouvé.")
 

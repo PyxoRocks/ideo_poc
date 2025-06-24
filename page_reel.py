@@ -17,14 +17,16 @@ def main():
     # Convertir en datetime naïf pour compatibilité avec plotly
     now_france_naive = now_france.replace(tzinfo=None)
 
-    locations = get_locations()
-    locations.insert(0, "tous les lieux")
-    min_date_str, max_date_str = get_min_max_dates()
-    if min_date_str == None :
-        st.error("Aucune donnée disponible, veuillez importer des données")
-        return
-    min_date = datetime.strptime(min_date_str, "%d/%m/%Y").date()
-    max_date = datetime.strptime(max_date_str, "%d/%m/%Y").date()
+    # Chargement des données de base avec spinner
+    with st.spinner("Chargement des données de base..."):
+        locations = get_locations()
+        locations.insert(0, "tous les lieux")
+        min_date_str, max_date_str = get_min_max_dates()
+        if min_date_str == None :
+            st.error("Aucune donnée disponible, veuillez importer des données")
+            return
+        min_date = datetime.strptime(min_date_str, "%d/%m/%Y").date()
+        max_date = datetime.strptime(max_date_str, "%d/%m/%Y").date()
 
     col1, col2, col3 = st.columns(3)
 
@@ -39,7 +41,10 @@ def main():
     
     # Calculer les stocks avec les paramètres sélectionnés
     location_param = None if selected_location == "tous les lieux" else selected_location
-    stocks_df = apply_corrections(location_param)
+    
+    # Indicateur de chargement pour le calcul des stocks
+    with st.spinner("Calcul des stocks en cours..."):
+        stocks_df = apply_corrections(location_param)
     
     st.write("")
 
@@ -132,7 +137,8 @@ def main():
     st.write("#### Liste des trains")
     
     # Récupérer les données des trains pour la période et le lieu sélectionnés
-    trains_df = get_trains_data(location_param)
+    with st.spinner("Chargement des données des trains..."):
+        trains_df = get_trains_data(location_param)
     
     if not trains_df.empty:
         # Formater les dates pour un affichage plus lisible

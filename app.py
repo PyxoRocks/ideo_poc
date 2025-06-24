@@ -53,8 +53,8 @@ def check_access_code():
 
 def main():
     st.set_page_config(
-        page_title="Mon Application Streamlit",
-        page_icon="🚀",
+        page_title="IDEO stocks & simulations",
+        page_icon="🚂",
         layout="wide"
     )
     
@@ -72,15 +72,11 @@ def main():
     # Création du menu de navigation dans la sidebar
     selected_page = st.navigation(pages, position="sidebar")
     
-    # Bouton de déconnexion dans la sidebar
-    if st.sidebar.button("🚪 Se déconnecter"):
-        st.session_state.access_granted = False
-        st.rerun()
-    
     # Zone de dépôt de fichier Excel dans la sidebar
     st.sidebar.subheader("📁 Import de données")
 
-    max_date = get_min_max_dates()[1]
+    with st.spinner("Vérification des données existantes..."):
+        max_date = get_min_max_dates()[1]
     if max_date:
         txt = f"Dernières données datent du {max_date}"
     else:
@@ -93,10 +89,11 @@ def main():
     )
     
     if uploaded_file is not None:
-        if new_excel(uploaded_file):
-            st.sidebar.success("Données importées avec succès")
-        else:
-            st.sidebar.error("Erreur lors de l'import")
+        with st.spinner("Import des données en cours..."):
+            if new_excel(uploaded_file):
+                st.sidebar.success("Données importées avec succès")
+            else:
+                st.sidebar.error("Erreur lors de l'import")
     
     # Exécution de la page sélectionnée
     selected_page.run()

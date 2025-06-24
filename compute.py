@@ -1,4 +1,5 @@
 import pandas as pd
+import streamlit as st
 from process_data import get_trains_data, get_events
 
 def apply_corrections(location=None):
@@ -162,8 +163,13 @@ def compute_stocks(location=None):
     # Créer une liste pour stocker tous les événements (arrivées et départs)
     events = []
 
+    # Indicateur de progression pour le traitement des trains
+    total_trains = len(trains_data)
+    if total_trains > 100:  # Seulement afficher la progression si il y a beaucoup de trains
+        progress_bar = st.progress(0)
+        progress_text = st.empty()
 
-    for _, row in trains_data.iterrows():
+    for idx, row in trains_data.iterrows():
         departure_date = row['DEPARTURE_DATE']
         arrival_date = row['ARRIVAL_DATE']
         nb_wagons = row['NB_WAGONS']
@@ -192,6 +198,17 @@ def compute_stocks(location=None):
             if location == "AMB":
                 to_append['status'] = "pleins" if row['TYPE'] == "Evac" else "vides"
             events.append(to_append)
+
+        # Mettre à jour la progression
+        if total_trains > 100:
+            progress = (idx + 1) / total_trains
+            progress_bar.progress(progress)
+            progress_text.text(f"Traitement des trains : {idx + 1}/{total_trains}")
+
+    # Nettoyer les indicateurs de progression
+    if total_trains > 100:
+        progress_bar.empty()
+        progress_text.empty()
 
     # Convertir en DataFrame et trier par datetime
     events_df = pd.DataFrame(events)
