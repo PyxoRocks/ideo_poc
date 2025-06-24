@@ -53,3 +53,5 @@ Thumbs.db
 # Fichiers temporaires
 *.tmp
 *.temp 
+
+SECRETS_SETUP.md

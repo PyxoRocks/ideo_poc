@@ -1,7 +1,6 @@
 import pandas as pd
 import snowflake.connector
 import os
-from dotenv import load_dotenv # Gardez ceci pour le développement local
 import streamlit as st # Importez streamlit
 from snowflake.snowpark.context import get_active_session # Importez pour la session Snowflake
 from snowflake.snowpark.session import Session
@@ -12,7 +11,7 @@ def get_snowflake_connection_or_session():
     """
     Établit et retourne une connexion à Snowflake.
     Utilise la session active si l'application tourne dans Snowflake,
-    sinon utilise les variables d'environnement pour une exécution locale.
+    sinon utilise st.secrets pour une exécution locale.
     """
     try:
         # Tente d'obtenir la session active de Snowpark (indique que nous sommes dans Snowflake)
@@ -21,18 +20,21 @@ def get_snowflake_connection_or_session():
         
     except Exception as e:
         # Si l'exception est levée, nous ne sommes probablement pas dans l'environnement Snowflake.
-        # On suppose une exécution locale, donc on charge les variables d'environnement.
-        load_dotenv()
+        # On utilise st.secrets pour les paramètres de connexion.
         try:
             conn = snowflake.connector.connect(
-                user=os.getenv('SNOWFLAKE_USER'),
-                password=os.getenv('SNOWFLAKE_PASSWORD'),
-                account=os.getenv('SNOWFLAKE_ACCOUNT'),
-                warehouse=os.getenv('SNOWFLAKE_WAREHOUSE'),
-                database=os.getenv('SNOWFLAKE_DATABASE'),
-                schema=os.getenv('SNOWFLAKE_SCHEMA')
+                user=st.secrets["SNOWFLAKE_USER"],
+                password=st.secrets["SNOWFLAKE_PASSWORD"],
+                account=st.secrets["SNOWFLAKE_ACCOUNT"],
+                warehouse=st.secrets["SNOWFLAKE_WAREHOUSE"],
+                database=st.secrets["SNOWFLAKE_DATABASE"],
+                schema=st.secrets["SNOWFLAKE_SCHEMA"],
+                role=st.secrets.get("SNOWFLAKE_ROLE", None)  # Optionnel
             )
             return conn
+        except KeyError as key_error:
+            st.error(f"❌ Configuration manquante dans st.secrets : {key_error}")
+            st.stop()
         except Exception as local_e:
             st.error(f"Erreur de connexion locale à Snowflake : {local_e}")
             raise local_e
