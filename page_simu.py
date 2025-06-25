@@ -1,18 +1,13 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-from process_data import get_simulations, get_locations, get_min_max_dates, get_trains_data, add_simulation, delete_simulation, get_sim_events, add_sim_event, delete_sim_event
+from process_data import get_simulations, get_cached_locations, get_cached_min_max_dates, get_cached_trains_data, add_simulation, delete_simulation, get_sim_events, add_sim_event, delete_sim_event
 
-# Cache pour éviter les requêtes répétées
+# Cache pour les événements de simulation
 @st.cache_data(ttl=300)  # Cache pour 5 minutes
-def get_cached_trains_data(location_param):
-    """Version mise en cache de get_trains_data"""
-    return get_trains_data(location_param)
-
-@st.cache_data(ttl=300)  # Cache pour 5 minutes
-def get_cached_locations():
-    """Version mise en cache de get_locations"""
-    return get_locations()
+def get_cached_sim_events(simulation_id):
+    """Version mise en cache de get_sim_events"""
+    return get_sim_events(simulation_id)
 
 def format_date(date_value):
     """Formate une date pour l'affichage"""
@@ -36,11 +31,10 @@ def show_simulation_edit():
     if simulation_id and 'current_simulation_id' not in st.session_state:
         st.session_state.current_simulation_id = simulation_id
     
-    # Charger les événements de simulation si on a un simulation_id
+    # Charger les événements de simulation si on a un simulation_id avec cache
     sim_events_df = pd.DataFrame()
     if simulation_id:
-        with st.spinner("Chargement des événements de simulation..."):
-            sim_events_df = get_sim_events(simulation_id)
+        sim_events_df = get_cached_sim_events(simulation_id)
         # Pour le moment, on ne l'utilise pas mais on l'a chargé
     
     col1, col2, col3 = st.columns(3)
@@ -166,11 +160,10 @@ def show_simulation_edit():
                 with col8:
                     st.write("")  # Espace vide
     
-    # Obtenir les données pour les sélecteurs
-    with st.spinner("Chargement des données de base..."):
-        locations = get_cached_locations()
-        locations.insert(0, "tous les lieux")
-        min_date_str, max_date_str = get_min_max_dates()
+    # Obtenir les données pour les sélecteurs avec cache
+    locations = get_cached_locations()
+    locations.insert(0, "tous les lieux")
+    min_date_str, max_date_str = get_cached_min_max_dates()
     
     if min_date_str is None:
         st.error("Aucune donnée disponible, veuillez importer des données")

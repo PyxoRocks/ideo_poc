@@ -1,5 +1,5 @@
 import streamlit as st
-from process_data import new_excel, get_min_max_dates
+from process_data import new_excel, get_cached_min_max_dates
 import hashlib
 import os
 
@@ -75,8 +75,8 @@ def main():
     # Zone de dépôt de fichier Excel dans la sidebar
     st.sidebar.subheader("📁 Import de données")
 
-    with st.spinner("Vérification des données existantes..."):
-        max_date = get_min_max_dates()[1]
+    # Vérification des données existantes avec cache
+    max_date = get_cached_min_max_dates()[1]
     if max_date:
         txt = f"Dernières données datent du {max_date}"
     else:
@@ -92,6 +92,8 @@ def main():
         with st.spinner("Import des données en cours..."):
             if new_excel(uploaded_file):
                 st.sidebar.success("Données importées avec succès")
+                # Invalider le cache après import
+                st.cache_data.clear()
             else:
                 st.sidebar.error("Erreur lors de l'import")
     

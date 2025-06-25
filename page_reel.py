@@ -1,7 +1,7 @@
 import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
-from process_data import get_locations, get_min_max_dates, get_trains_data
+from process_data import get_cached_locations, get_cached_min_max_dates, get_cached_trains_data
 from compute import apply_corrections
 from datetime import datetime
 import pandas as pd
@@ -17,16 +17,16 @@ def main():
     # Convertir en datetime naïf pour compatibilité avec plotly
     now_france_naive = now_france.replace(tzinfo=None)
 
-    # Chargement des données de base avec spinner
-    with st.spinner("Chargement des données de base..."):
-        locations = get_locations()
-        locations.insert(0, "tous les lieux")
-        min_date_str, max_date_str = get_min_max_dates()
-        if min_date_str == None :
-            st.error("Aucune donnée disponible, veuillez importer des données")
-            return
-        min_date = datetime.strptime(min_date_str, "%d/%m/%Y").date()
-        max_date = datetime.strptime(max_date_str, "%d/%m/%Y").date()
+    # Chargement des données de base avec cache
+    locations = get_cached_locations()
+    locations.insert(0, "tous les lieux")
+    min_date_str, max_date_str = get_cached_min_max_dates()
+    
+    if min_date_str == None :
+        st.error("Aucune donnée disponible, veuillez importer des données")
+        return
+    min_date = datetime.strptime(min_date_str, "%d/%m/%Y").date()
+    max_date = datetime.strptime(max_date_str, "%d/%m/%Y").date()
 
     col1, col2, col3 = st.columns(3)
 
@@ -42,9 +42,8 @@ def main():
     # Calculer les stocks avec les paramètres sélectionnés
     location_param = None if selected_location == "tous les lieux" else selected_location
     
-    # Indicateur de chargement pour le calcul des stocks
-    with st.spinner("Calcul des stocks en cours..."):
-        stocks_df = apply_corrections(location_param)
+    # Calcul des stocks avec cache
+    stocks_df = apply_corrections(location_param)
     
     st.write("")
 
@@ -136,9 +135,8 @@ def main():
     # Section pour afficher la table des données des trains
     st.write("#### Liste des trains")
     
-    # Récupérer les données des trains pour la période et le lieu sélectionnés
-    with st.spinner("Chargement des données des trains..."):
-        trains_df = get_trains_data(location_param)
+    # Récupérer les données des trains avec cache
+    trains_df = get_cached_trains_data(location_param)
     
     if not trains_df.empty:
         # Formater les dates pour un affichage plus lisible

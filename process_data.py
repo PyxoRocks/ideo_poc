@@ -6,17 +6,37 @@ import warnings # Ajout pour supprimer les avertissements pandas
 from snowflake.snowpark.context import get_active_session # Importez pour la session Snowflake
 from snowflake.snowpark.session import Session
 from snowflake.snowpark.types import StructType, StructField, StringType, TimestampType, IntegerType
+from functools import lru_cache
+import threading
+import time
 
 # Supprimer l'avertissement spécifique de pandas pour les connecteurs non-SQLAlchemy
 warnings.filterwarnings('ignore', message='pandas only supports SQLAlchemy connectable')
 
-# --- Nouvelle fonction utilitaire pour la connexion à Snowflake ---
+# Cache global pour les connexions
+_connection_cache = {}
+_connection_lock = threading.Lock()
+_last_connection_time = 0
+CONNECTION_TIMEOUT = 300  # 5 minutes
+
+def invalidate_cache():
+    """Invalide le cache des données pour forcer le rechargement"""
+    try:
+        st.cache_data.clear()
+        print("Cache invalidé avec succès")
+    except Exception as e:
+        print(f"Erreur lors de l'invalidation du cache : {e}")
+
+# --- Nouvelle fonction utilitaire pour la connexion à Snowflake avec cache ---
+@lru_cache(maxsize=1)
 def get_snowflake_connection_or_session():
     """
-    Établit et retourne une connexion à Snowflake.
+    Établit et retourne une connexion à Snowflake avec cache intelligent.
     Utilise la session active si l'application tourne dans Snowflake,
-    sinon utilise st.secrets pour une exécution locale.
+    sinon utilise st.secrets pour une exécution locale avec pool de connexions.
     """
+    global _connection_cache, _last_connection_time
+    
     try:
         # Tente d'obtenir la session active de Snowpark (indique que nous sommes dans Snowflake)
         session = get_active_session()
@@ -24,24 +44,66 @@ def get_snowflake_connection_or_session():
         
     except Exception as e:
         # Si l'exception est levée, nous ne sommes probablement pas dans l'environnement Snowflake.
-        # On utilise st.secrets pour les paramètres de connexion.
-        try:
-            conn = snowflake.connector.connect(
-                user=st.secrets["SNOWFLAKE_USER"],
-                password=st.secrets["SNOWFLAKE_PASSWORD"],
-                account=st.secrets["SNOWFLAKE_ACCOUNT"],
-                warehouse=st.secrets["SNOWFLAKE_WAREHOUSE"],
-                database=st.secrets["SNOWFLAKE_DATABASE"],
-                schema=st.secrets["SNOWFLAKE_SCHEMA"],
-                role=st.secrets.get("SNOWFLAKE_ROLE", None)  # Optionnel
-            )
-            return conn
-        except KeyError as key_error:
-            st.error(f"❌ Configuration manquante dans st.secrets : {key_error}")
-            st.stop()
-        except Exception as local_e:
-            st.error(f"Erreur de connexion locale à Snowflake : {local_e}")
-            raise local_e
+        # On utilise st.secrets pour les paramètres de connexion avec cache.
+        
+        current_time = time.time()
+        
+        with _connection_lock:
+            # Vérifier si on a une connexion valide en cache
+            if 'connection' in _connection_cache:
+                last_time = _last_connection_time
+                if current_time - last_time < CONNECTION_TIMEOUT:
+                    try:
+                        # Tester si la connexion est encore valide
+                        _connection_cache['connection'].cursor().execute("SELECT 1")
+                        _last_connection_time = current_time
+                        return _connection_cache['connection']
+                    except:
+                        # Connexion invalide, on la supprime
+                        try:
+                            _connection_cache['connection'].close()
+                        except:
+                            pass
+                        del _connection_cache['connection']
+            
+            # Créer une nouvelle connexion
+            try:
+                conn = snowflake.connector.connect(
+                    user=st.secrets["SNOWFLAKE_USER"],
+                    password=st.secrets["SNOWFLAKE_PASSWORD"],
+                    account=st.secrets["SNOWFLAKE_ACCOUNT"],
+                    warehouse=st.secrets["SNOWFLAKE_WAREHOUSE"],
+                    database=st.secrets["SNOWFLAKE_DATABASE"],
+                    schema=st.secrets["SNOWFLAKE_SCHEMA"],
+                    role=st.secrets.get("SNOWFLAKE_ROLE", None),  # Optionnel
+                    autocommit=True,  # Optimisation pour les requêtes en lecture
+                    client_session_keep_alive=True,  # Garder la session active
+                    network_timeout=30,  # Timeout réseau
+                    login_timeout=30,  # Timeout de connexion
+                )
+                
+                _connection_cache['connection'] = conn
+                _last_connection_time = current_time
+                return conn
+                
+            except KeyError as key_error:
+                st.error(f"❌ Configuration manquante dans st.secrets : {key_error}")
+                st.stop()
+            except Exception as local_e:
+                st.error(f"Erreur de connexion locale à Snowflake : {local_e}")
+                raise local_e
+
+# Fonction pour fermer proprement les connexions
+def close_connections():
+    """Ferme toutes les connexions en cache"""
+    global _connection_cache
+    with _connection_lock:
+        if 'connection' in _connection_cache:
+            try:
+                _connection_cache['connection'].close()
+            except:
+                pass
+            del _connection_cache['connection']
 
 # --- Votre code existant, modifié pour utiliser get_snowflake_connection_or_session ---
 
@@ -197,6 +259,9 @@ def upload_data(df):
             progress_bar.empty()
             progress_text.empty()
 
+        # Invalider le cache après import de nouvelles données
+        invalidate_cache()
+
         return True
 
     except Exception as e:
@@ -230,7 +295,7 @@ def get_min_max_dates():
             cursor.execute(query)
             min_date, max_date = cursor.fetchone()
             cursor.close()
-            db_handle.close()
+            # Ne pas fermer la connexion car elle est mise en cache
         
         if min_date and max_date:
             return min_date.strftime("%d/%m/%Y"), max_date.strftime("%d/%m/%Y")
@@ -238,17 +303,42 @@ def get_min_max_dates():
             return None, None
             
     except Exception as e:
-        if not isinstance(db_handle, Session):
-            db_handle.close()
         print(f"Erreur lors de la récupération des dates : {e}")
         return None, None
+
+# Cache pour les données fréquemment utilisées
+@st.cache_data(ttl=600)  # Cache pour 10 minutes
+def get_cached_trains_data(location=None):
+    """Version mise en cache de get_trains_data avec optimisation"""
+    return get_trains_data(location)
+
+@st.cache_data(ttl=1800)  # Cache pour 30 minutes (données statiques)
+def get_cached_locations():
+    """Version mise en cache de get_locations"""
+    return get_locations()
+
+@st.cache_data(ttl=600)  # Cache pour 10 minutes
+def get_cached_events(location=None):
+    """Version mise en cache de get_events"""
+    return get_events(location)
+
+@st.cache_data(ttl=1800)  # Cache pour 30 minutes
+def get_cached_min_max_dates():
+    """Version mise en cache de get_min_max_dates"""
+    return get_min_max_dates()
 
 def get_trains_data(location=None):
     """Récupère depuis snowflake les données des trains pour une période donnée et retourne un DataFrame pandas"""
     db_handle = get_snowflake_connection_or_session()
 
     try:
-        query = f"SELECT * FROM trains "
+        # Optimisation de la requête avec sélection spécifique des colonnes
+        query = """
+        SELECT 
+            train_id, departure_point, arrival_point, departure_date, 
+            arrival_date, nb_wagons, type
+        FROM trains 
+        """
         if location:
             query += f"WHERE (departure_point = '{location}' OR arrival_point = '{location}')"
         query += " ORDER BY departure_date DESC"
@@ -257,64 +347,60 @@ def get_trains_data(location=None):
             # Environnement Snowflake - utiliser Snowpark
             df = db_handle.sql(query).to_pandas()
         else:
-            # Environnement local - utiliser pandas read_sql
-            df = pd.read_sql(query, db_handle)
-            db_handle.close()
+            # Environnement local - utiliser pandas read_sql avec chunking pour les gros datasets
+            df = pd.read_sql(query, db_handle, chunksize=10000)
+            df = pd.concat(df, ignore_index=True)
         
         return df
         
     except Exception as e:
-        if not isinstance(db_handle, Session):
-            db_handle.close()
         print(f"Erreur lors de la récupération des données trains : {e}")
         return pd.DataFrame()
 
 def get_locations():
-    """Récupère les locations des trains depuis snowflake"""
+    """Récupère les locations des trains depuis snowflake avec optimisation"""
     db_handle = get_snowflake_connection_or_session()
 
     try:
+        # Requête optimisée pour récupérer toutes les locations en une fois
+        query = """
+        SELECT DISTINCT location_name 
+        FROM (
+            SELECT departure_point as location_name FROM trains
+            UNION
+            SELECT arrival_point as location_name FROM trains
+        )
+        ORDER BY location_name
+        """
+        
         if isinstance(db_handle, Session):
             # Environnement Snowflake - utiliser Snowpark
-            query_departure = "SELECT DISTINCT departure_point FROM trains"
-            query_arrival = "SELECT DISTINCT arrival_point FROM trains"
-            
-            departure_locations = db_handle.sql(query_departure).collect()
-            arrival_locations = db_handle.sql(query_arrival).collect()
-            
-            locations = [loc[0] for loc in departure_locations] + [loc[0] for loc in arrival_locations]
+            result = db_handle.sql(query).collect()
+            locations = [row[0] for row in result]
         else:
             # Environnement local - utiliser snowflake.connector
             cursor = db_handle.cursor()
-            
-            query = "SELECT DISTINCT departure_point FROM trains"
             cursor.execute(query)
-            locations = cursor.fetchall()
-            
-            query = "SELECT DISTINCT arrival_point FROM trains"
-            cursor.execute(query)
-            locations.extend(cursor.fetchall())
-            
-            locations = [loc[0] for loc in locations]
+            locations = [row[0] for row in cursor.fetchall()]
             cursor.close()
-            db_handle.close()
+            # Ne pas fermer la connexion car elle est mise en cache
         
-        # Supprimer les doublons de la liste
-        locations = list(set(locations))
         return locations
         
     except Exception as e:
-        if not isinstance(db_handle, Session):
-            db_handle.close()
         print(f"Erreur lors de la récupération des locations : {e}")
         return []
 
 def get_events(location=None):
-    """Récupère les événements depuis snowflake"""
+    """Récupère les événements depuis snowflake avec optimisation"""
     db_handle = get_snowflake_connection_or_session()
 
     try:
-        query = "SELECT * FROM events"
+        # Optimisation de la requête avec sélection spécifique des colonnes
+        query = """
+        SELECT id, location, event_date, nb_wagons, relative, comment, type
+        FROM events
+        """
         if location:
             query += f" WHERE location = '{location}'"
         query += " ORDER BY event_date DESC"
@@ -325,13 +411,11 @@ def get_events(location=None):
         else:
             # Environnement local - utiliser pandas read_sql
             df = pd.read_sql(query, db_handle)
-            db_handle.close()
+            # Ne pas fermer la connexion car elle est mise en cache
         
         return df
         
     except Exception as e:
-        if not isinstance(db_handle, Session):
-            db_handle.close()
         print(f"Erreur lors de la récupération des événements : {e}")
         return pd.DataFrame()
 
@@ -351,14 +435,16 @@ def add_event(location, event_date, nb_wagons, relative, comment, type=None):
             cursor.execute(query, (location, event_date, nb_wagons, relative, comment, type))
             db_handle.commit()
             cursor.close()
-            db_handle.close()
+            # Ne pas fermer la connexion car elle est mise en cache
+        
+        # Invalider le cache des événements après modification
+        invalidate_cache()
         
         return True
         
     except Exception as e:
         if not isinstance(db_handle, Session):
             db_handle.rollback()
-            db_handle.close()
         print(f"Erreur lors de l'ajout de l'événement : {e}")
         return False
 
@@ -378,14 +464,16 @@ def update_event(event_id, location, event_date, nb_wagons, relative, comment, t
             cursor.execute(query, (location, event_date, nb_wagons, relative, comment, type, event_id))
             db_handle.commit()
             cursor.close()
-            db_handle.close()
+            # Ne pas fermer la connexion car elle est mise en cache
+        
+        # Invalider le cache des événements après modification
+        invalidate_cache()
         
         return True
         
     except Exception as e:
         if not isinstance(db_handle, Session):
             db_handle.rollback()
-            db_handle.close()
         print(f"Erreur lors de la mise à jour de l'événement : {e}")
         return False
 
@@ -405,14 +493,16 @@ def delete_event(event_id):
             cursor.execute(query, (event_id,))
             db_handle.commit()
             cursor.close()
-            db_handle.close()
+            # Ne pas fermer la connexion car elle est mise en cache
+        
+        # Invalider le cache des événements après modification
+        invalidate_cache()
         
         return True
         
     except Exception as e:
         if not isinstance(db_handle, Session):
             db_handle.rollback()
-            db_handle.close()
         print(f"Erreur lors de la suppression de l'événement : {e}")
         return False
 
@@ -465,15 +555,13 @@ def get_simulations():
             columns = ['id', 'name', 'created_at', 'last_modified_at', 'added_count', 'modified_count', 'deleted_count']
             data = cursor.fetchall()
             cursor.close()
-            db_handle.close()
+            # Ne pas fermer la connexion car elle est mise en cache
             
             if data:
                 return pd.DataFrame(data, columns=columns)
             return pd.DataFrame(columns=columns)
             
     except Exception as e:
-        if not isinstance(db_handle, Session):
-            db_handle.close()
         print(f"Erreur lors de la récupération des simulations : {e}")
         return pd.DataFrame(columns=['id', 'name', 'created_at', 'last_modified_at', 'added_count', 'modified_count', 'deleted_count'])
     
@@ -516,7 +604,7 @@ def add_simulation(name):
             
             db_handle.commit()
             cursor.close()
-            db_handle.close()
+            # Ne pas fermer la connexion car elle est mise en cache
             
             if result:
                 return result[0]  # Retourner l'ID
@@ -526,7 +614,6 @@ def add_simulation(name):
     except Exception as e:
         if not isinstance(db_handle, Session):
             db_handle.rollback()
-            db_handle.close()
         print(f"Erreur lors de l'ajout de la simulation : {e}")
         return None
 
@@ -559,14 +646,13 @@ def delete_simulation(simulation_id):
             
             db_handle.commit()
             cursor.close()
-            db_handle.close()
+            # Ne pas fermer la connexion car elle est mise en cache
         
         return True
         
     except Exception as e:
         if not isinstance(db_handle, Session):
             db_handle.rollback()
-            db_handle.close()
         print(f"Erreur lors de la suppression de la simulation : {e}")
         return False
 
@@ -593,7 +679,7 @@ def get_sim_events(simulation_id):
             columns = [desc[0] for desc in cursor.description]
             data = cursor.fetchall()
             cursor.close()
-            db_handle.close()
+            # Ne pas fermer la connexion car elle est mise en cache
             
             if data:
                 df = pd.DataFrame(data, columns=columns)
@@ -603,8 +689,6 @@ def get_sim_events(simulation_id):
         return df
         
     except Exception as e:
-        if not isinstance(db_handle, Session):
-            db_handle.close()
         print(f"Erreur lors de la récupération des événements de simulation : {e}")
         return pd.DataFrame()
 
@@ -647,14 +731,16 @@ def add_sim_event(simulation_id, modification_type, train_id=None, departure_tim
             ))
             db_handle.commit()
             cursor.close()
-            db_handle.close()
+            # Ne pas fermer la connexion car elle est mise en cache
+        
+        # Invalider le cache des événements de simulation après modification
+        invalidate_cache()
         
         return True
         
     except Exception as e:
         if not isinstance(db_handle, Session):
             db_handle.rollback()
-            db_handle.close()
         print(f"Erreur lors de l'ajout de l'événement de simulation : {e}")
         return False
     
@@ -771,14 +857,16 @@ def delete_sim_event(simulation_id, modification_type, train_id=None, departure_
             cursor.execute(query, tuple(params))
             db_handle.commit()
             cursor.close()
-            db_handle.close()
+            # Ne pas fermer la connexion car elle est mise en cache
+        
+        # Invalider le cache des événements de simulation après modification
+        invalidate_cache()
         
         return True
         
     except Exception as e:
         if not isinstance(db_handle, Session):
             db_handle.rollback()
-            db_handle.close()
         print(f"Erreur lors de la suppression de l'événement de simulation : {e}")
         return False
     

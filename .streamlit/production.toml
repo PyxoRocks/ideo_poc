@@ -1,0 +1,29 @@
+[server]
+# Optimisations pour la production
+maxUploadSize = 200
+enableXsrfProtection = false
+enableCORS = false
+maxMessageSize = 200
+port = 8501
+
+[browser]
+# Optimisations pour le navigateur
+gatherUsageStats = false
+serverAddress = "0.0.0.0"
+
+[client]
+# Optimisations pour le client
+showErrorDetails = false
+caching = true
+
+[theme]
+# Thème optimisé pour la production
+primaryColor = "#FF6B6B"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F0F2F6"
+textColor = "#262730"
+
+[logger]
+# Configuration des logs
+level = "warning"
+messageFormat = "%(asctime)s %(message)s" 

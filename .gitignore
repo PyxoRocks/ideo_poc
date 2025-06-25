@@ -1,58 +1,51 @@
-# Environnement virtuel
-venv/
-env/
-ENV/
-
-# Fichiers Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
 *.egg-info/
-.installed.cfg
-*.egg
-
-# Fichiers de configuration
-.env
 .venv
-.streamlit/secrets.toml
-pip-log.txt
-pip-delete-this-directory.txt
-
-# IDE
-.vscode/
-.idea/
-*.swp
+.Python
+# Environnement virtuel
+__pycache__/
+*.so
+lib/
 *.swo
-*~
-
-# OS
-.DS_Store
-.DS_Store?
-._*
+pip-delete-this-directory.txt
+# IDE
 .Spotlight-V100
-.Trashes
-ehthumbs.db
+ENV/
+.vscode/
 Thumbs.db
-
-# Logs
-*.log
-
+.Trashes
+lib64/
+*.egg
+.DS_Store
+var/
 # Fichiers temporaires
+pip-log.txt
+.idea/
+ehthumbs.db
+*$py.class
+# Fichiers de configuration
+eggs/
+build/
+SECRETS_SETUP.md
+*.log
+sdist/
+venv/
+*.swp
+.DS_Store?
+develop-eggs/
+*~
 *.tmp
 *.temp
-
-SECRETS_SETUP.md
+parts/
+env/
+# OS
+*.py[cod]
+dist/
+# Fichiers Python
+.streamlit/secrets.toml
+.eggs/
+._*
+downloads/
+wheels/
+# Logs
+.installed.cfg
+.env
