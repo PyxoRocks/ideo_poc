@@ -57,6 +57,15 @@ def check_access_code():
         
         # Empêcher l'accès au reste de l'application
         st.stop()
+    else:
+        # S'assurer que la sidebar soit visible après authentification
+        st.markdown("""
+        <style>
+        [data-testid="stSidebar"] {
+            display: block !important;
+        }
+        </style>
+        """, unsafe_allow_html=True)
     
     return True
 
