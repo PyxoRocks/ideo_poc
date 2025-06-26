@@ -43,7 +43,7 @@ def main():
     location_param = None if selected_location == "tous les lieux" else selected_location
     
     # Calcul des stocks avec cache
-    stocks_df = apply_corrections(location_param)
+    stocks_df = apply_corrections(location_param, simulation=False, sim_events=None)
     
     st.write("")
 

@@ -18,6 +18,15 @@ def check_access_code():
         st.session_state.access_granted = False
     
     if not st.session_state.access_granted:
+        # Masquer la sidebar avec du CSS personnalisé
+        st.markdown("""
+        <style>
+        [data-testid="stSidebar"] {
+            display: none !important;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+        
         # Interface de connexion
         st.markdown("""
         <div style="text-align: center; padding: 50px;">

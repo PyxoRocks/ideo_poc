@@ -1,7 +1,11 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+import plotly.express as px
+import plotly.graph_objects as go
+import pytz
 from process_data import get_simulations, get_cached_locations, get_cached_min_max_dates, get_cached_trains_data, add_simulation, delete_simulation, get_sim_events, add_sim_event, delete_sim_event
+from compute import apply_corrections, apply_simulation
 
 # Cache pour les événements de simulation
 @st.cache_data(ttl=300)  # Cache pour 5 minutes
@@ -32,16 +36,16 @@ def show_simulation_edit():
         st.session_state.current_simulation_id = simulation_id
     
     # Charger les événements de simulation si on a un simulation_id avec cache
-    sim_events_df = pd.DataFrame()
     if simulation_id:
         sim_events_df = get_cached_sim_events(simulation_id)
-        # Pour le moment, on ne l'utilise pas mais on l'a chargé
+    else:
+        sim_events_df = pd.DataFrame()
     
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3 = st.columns([1, 1, 1])
 
     with col1:
         # Bouton retour
-        if st.button("← Retour à la liste des simulations"):
+        if st.button("← Retour aux simulations", use_container_width=True):
             # Nettoyer les paramètres de session
             if 'simulation_id' in st.session_state:
                 del st.session_state.simulation_id
@@ -53,10 +57,13 @@ def show_simulation_edit():
     
     with col2:
         # Affichage du nom de la simulation
-        st.header(simulation_name)
+        st.markdown(f"<h1 style='text-align: center;'>{simulation_name}</h1>", unsafe_allow_html=True)
 
     with col3:
-        st.write("futur lanceement de la simulation")
+        if st.button("Lancer la simulation →", use_container_width=True):
+            # Activer la vue de simulation
+            st.session_state.show_simulation_view = True
+            st.rerun()
 
     if len(sim_events_df) != 0:
         st.markdown("---")
@@ -203,8 +210,8 @@ def show_simulation_edit():
                 arrival_point = st.selectbox("Arrivée", train_locations, key="form_arrival")
             
             with col2:
-                departure_date = st.date_input("Date départ", min_value=min_date, max_value=max_date, value=min_date, key="form_departure_date")
-                arrival_date = st.date_input("Date arrivée", min_value=min_date, max_value=max_date, value=min_date, key="form_arrival_date")
+                departure_date = st.date_input("Date départ", value=max_date, key="form_departure_date")
+                arrival_date = st.date_input("Date arrivée", value=max_date, key="form_arrival_date")
             
             with col3:
                 # Heures avec input text pour plus de précision
@@ -212,7 +219,7 @@ def show_simulation_edit():
                 arrival_time_str = st.text_input("Heure arrivée (HH:MM)", value="10:00", key="form_arrival_time", help="Format HH:MM (ex: 10:15)")
             
             with col4:
-                nb_wagons = st.number_input("Wagons", min_value=1, max_value=50, value=10, key="form_wagons")
+                nb_wagons = st.number_input("Wagons", min_value=1, max_value=500, value=10, key="form_wagons")
                 st.write("")
                 is_empty = st.checkbox("Wagons vides", key="form_empty")
             
@@ -281,10 +288,15 @@ def show_simulation_edit():
         end_date = st.date_input("Date de fin", min_value=min_date, max_value=max_date, value=max_date)
     
     
-    # Récupérer les données des trains pour la période et le lieu sélectionnés (AVANT le formulaire)
+    # Récupérer les données des trains avec cache
     location_param = None if selected_location == "tous les lieux" else selected_location
     trains_df = get_cached_trains_data(location_param)
-
+    
+    # Appliquer les modifications de simulation aux données des trains
+    if simulation_id:
+        sim_events = get_sim_events(simulation_id)
+        if not sim_events.empty:
+            trains_df = apply_simulation(trains_df, location_param, sim_events)
 
     if not trains_df.empty:
         # Filtrer par dates
@@ -295,6 +307,8 @@ def show_simulation_edit():
             ((trains_df['DEPARTURE_DATE'] >= start_date_ts) & (trains_df['DEPARTURE_DATE'] <= end_date_ts)) | 
             ((trains_df['ARRIVAL_DATE'] >= start_date_ts) & (trains_df['ARRIVAL_DATE'] <= end_date_ts))
         ]
+
+        trains_df_filtered = trains_df_filtered.sort_values(by="DEPARTURE_DATE", ascending=False).reset_index(drop=True)
         
         if not trains_df_filtered.empty:
             # Titres de colonnes
@@ -432,7 +446,7 @@ def show_simulation_edit():
                             nb_wagons = st.number_input(
                                 "Wagons", 
                                 min_value=1, 
-                                max_value=50, 
+                                max_value=500, 
                                 value=st.session_state.edit_nb_wagons,
                                 key="edit_form_wagons"
                             )
@@ -618,12 +632,220 @@ def show_simulation_list():
                         else:
                             st.error(f"❌ Erreur lors de la suppression de la simulation '{sim['name']}'")
 
+def show_simulation_view():
+    """Affiche la vue de simulation (reproduction de page_reel)"""
+    
+    # Récupération des paramètres de session
+    simulation_id = st.session_state.get('simulation_id', None)
+    simulation_name = st.session_state.get('simulation_name', 'Simulation')
+    
+    # En-tête avec titre et bouton retour
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col1:
+        if st.button("← Retour à l'édition", use_container_width=True):
+            # Retourner à la page d'édition
+            if 'show_simulation_view' in st.session_state:
+                del st.session_state.show_simulation_view
+            st.rerun()
+    
+    with col2:
+        st.markdown(f"<h1 style='text-align: center;'>{simulation_name}</h1>", unsafe_allow_html=True)
+    
+    with col3:
+        st.write("")  # Espace vide pour symétrie
+    
+    st.markdown("---")
+    
+    # Obtenir l'heure actuelle en heure française
+    tz_france = pytz.timezone('Europe/Paris')
+    now_france = datetime.now(tz_france)
+    now_france = datetime.strptime("2025-05-20 12:00:00", "%Y-%m-%d %H:%M:%S") #fake to test
+    # Convertir en datetime naïf pour compatibilité avec plotly
+    now_france_naive = now_france.replace(tzinfo=None)
+
+    # Chargement des données de base avec cache
+    locations = get_cached_locations()
+    locations.insert(0, "tous les lieux")
+    min_date_str, max_date_str = get_cached_min_max_dates()
+    
+    if min_date_str == None :
+        st.error("Aucune donnée disponible, veuillez importer des données")
+        return
+    min_date = datetime.strptime(min_date_str, "%d/%m/%Y").date()
+    max_date = datetime.strptime(max_date_str, "%d/%m/%Y").date()
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        selected_location = st.selectbox("Lieu", locations)
+
+    with col2:
+        start_date = st.date_input("Date de début", min_value=min_date, max_value=max_date, value=min_date)
+
+    with col3:
+        end_date = st.date_input("Date de fin", min_value=min_date, max_value=max_date, value=max_date)
+    
+    # Calculer les stocks avec les paramètres sélectionnés
+    location_param = None if selected_location == "tous les lieux" else selected_location
+    
+    # Calcul des stocks avec cache
+    stocks_df = apply_corrections(location_param, simulation=True, sim_events=get_sim_events(simulation_id))
+    real_stocks_df = apply_corrections(location_param, simulation=False, sim_events=None)
+    
+    st.write("")
+
+    # Créer le graphique
+    if not stocks_df.empty:
+        if selected_location == "tous les lieux":
+            st.write("#### Évolution des stocks de wagons par lieu")
+            # Graphique avec toutes les localisations
+            fig = px.line(stocks_df, 
+                         x='datetime', 
+                         y='nombre_wagons', 
+                         color='location',
+                         labels={'datetime': 'Date et heure', 'nombre_wagons': 'Nombre de wagons', 'location': 'Lieu'},
+                         hover_data=['location', 'nombre_wagons'],
+                         line_shape='hv')  # Créneaux horizontaux-verticaux
+            
+        elif selected_location == "AMB":
+            st.write("#### Évolution des stocks de wagons - AMB")
+            real_stocks_df['isSimulation'] = real_stocks_df['status']+"- Réel"
+            stocks_df['isSimulation'] = stocks_df['status']+"- Simulation"
+            compare_stocks_df = pd.concat([real_stocks_df, stocks_df], ignore_index=True)
+            fig = px.line(compare_stocks_df, 
+                         x='datetime', 
+                         y='nombre_wagons', 
+                         color='isSimulation',
+                         labels={'datetime': 'Date et heure', 'nombre_wagons': 'Nombre de wagons', 'isSimulation': 'Simulation'},
+                         hover_data=['isSimulation', 'nombre_wagons'],
+                         line_shape='hv')  # Créneaux horizontaux-verticaux
+        else:
+            st.write(f"#### Évolution des stocks de wagons - {selected_location}")  
+            real_stocks_df['isSimulation'] = "Réel"
+            stocks_df['isSimulation'] = "Simulation"
+            compare_stocks_df = pd.concat([real_stocks_df, stocks_df], ignore_index=True)
+            # Graphique pour une localisation spécifique
+            fig = px.line(compare_stocks_df, 
+                         x='datetime', 
+                         y='nombre_wagons',
+                         color='isSimulation',
+                         labels={'datetime': 'Date et heure', 'nombre_wagons': 'Nombre de wagons', 'isSimulation': 'Simulation'},
+                         hover_data=['isSimulation', 'nombre_wagons'],
+                         line_shape='hv')  # Créneaux horizontaux-verticaux
+        # Définir les limites de l'axe des abscisses
+        fig.update_xaxes(
+            range=[
+                datetime.combine(start_date, datetime.min.time()),  # Date début à minuit
+                datetime.combine(end_date, datetime.max.time().replace(microsecond=0))  # Date fin à 23:59:59
+            ]
+        )
+        
+        # Ajouter une ligne verticale pour l'heure actuelle
+        fig.add_shape(
+            type="line",
+            x0=now_france_naive,
+            x1=now_france_naive,
+            y0=0,
+            y1=1,
+            yref="paper",
+            line=dict(color="red", width=2, dash="dash"),
+        )
+        
+        # Ajouter une annotation pour l'heure actuelle
+        fig.add_annotation(
+            x=now_france_naive,
+            y=1,
+            yref="paper",
+            text=f"Maintenant ({now_france_naive.strftime('%d/%m/%Y %H:%M')})",
+            showarrow=False,
+            bgcolor="red",
+            bordercolor="red",
+            borderwidth=1,
+            font=dict(color="white", size=10),
+            xanchor="left",
+            yanchor="bottom"
+        )
+        
+        # Personnaliser le graphique
+        fig.update_layout(
+            xaxis_title="Date et heure",
+            yaxis_title="Nombre de wagons",
+            hovermode='x unified',
+        )
+        
+        # Améliorer l'affichage des tooltips pour un hover continu
+        fig.update_traces(
+            hovertemplate='<b>%{fullData.name}</b><br>' +
+                         '%{y} wagons<extra></extra>',
+            hoverinfo='y+name'
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.warning("Aucune donnée disponible pour la période et le lieu sélectionnés.")
+
+    # Section pour afficher la table des données des trains
+    st.write("#### Liste des trains")
+    
+    # Récupérer les données des trains avec cache
+    trains_df = get_cached_trains_data(location_param)
+    
+    # Appliquer les modifications de simulation aux données des trains
+    if simulation_id:
+        sim_events = get_sim_events(simulation_id)
+        if not sim_events.empty:
+            trains_df = apply_simulation(get_cached_trains_data(None), location_param, sim_events)
+
+    if not trains_df.empty:
+        # Formater les dates pour un affichage plus lisible
+        trains_df_display = trains_df.copy()
+        start_date = pd.Timestamp(start_date.strftime("%Y-%m-%d") + " 00:00:00")
+        end_date = pd.Timestamp(end_date.strftime("%Y-%m-%d") + " 23:59:59")
+        trains_df_display = trains_df_display[((trains_df_display['DEPARTURE_DATE'] >= start_date) & (trains_df_display['DEPARTURE_DATE'] <= end_date)) | ((trains_df_display['ARRIVAL_DATE'] >= start_date) & (trains_df_display['ARRIVAL_DATE'] <= end_date))]
+        if 'DEPARTURE_DATE' in trains_df_display.columns:
+            trains_df_display['DEPARTURE_DATE'] = pd.to_datetime(trains_df_display['DEPARTURE_DATE']).dt.strftime('%d/%m/%Y %H:%M')
+        if 'ARRIVAL_DATE' in trains_df_display.columns:
+            trains_df_display['ARRIVAL_DATE'] = pd.to_datetime(trains_df_display['ARRIVAL_DATE']).dt.strftime('%d/%m/%Y %H:%M')
+        
+        # Renommer les colonnes pour un affichage plus clair
+        trains_df_display = trains_df_display.rename(columns={
+            'train_id': 'ID Train',
+            'departure_point': 'Point de départ',
+            'arrival_point': 'Point d\'arrivée',
+            'departure_date': 'Date de départ',
+            'arrival_date': 'Date d\'arrivée',
+            'nb_wagons': 'Nombre de wagons',
+            'type': 'Type'
+        })
+        
+        # Afficher la table avec pagination
+        st.dataframe(
+            trains_df_display,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "ID Train": st.column_config.TextColumn("ID Train", width="medium"),
+                "Point de départ": st.column_config.TextColumn("Point de départ", width="medium"),
+                "Point d'arrivée": st.column_config.TextColumn("Point d'arrivée", width="medium"),
+                "Date de départ": st.column_config.TextColumn("Date de départ", width="medium"),
+                "Date d'arrivée": st.column_config.TextColumn("Date d'arrivée", width="medium"),
+                "Nombre de wagons": st.column_config.NumberColumn("Nombre de wagons", width="small"),
+                "Type": st.column_config.TextColumn("Type", width="small")
+            }
+        )
+    else:
+        st.warning("Aucune donnée de train disponible pour la période et le lieu sélectionnés.")
+
 def main():
     # Vérifier si on est en mode édition
     if 'simulation_id' in st.session_state:
         # Si on est en train de saisir le nom, ne pas aller à l'édition
         if st.session_state.get('show_name_input', False):
             show_simulation_list()
+        # Si on veut afficher la vue de simulation
+        elif st.session_state.get('show_simulation_view', False):
+            show_simulation_view()
         else:
             show_simulation_edit()
     else:

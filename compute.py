@@ -14,15 +14,15 @@ def get_cached_events_for_compute(location=None):
     return get_cached_events(location)
 
 @st.cache_data(ttl=300)  # Cache pour 5 minutes
-def compute_stocks_cached(location=None):
+def compute_stocks_cached(location=None, simulation:bool=False, sim_events:pd.DataFrame=None):
     """Version mise en cache de compute_stocks"""
-    return compute_stocks(location)
+    return compute_stocks(location, simulation=simulation, sim_events=sim_events)
 
-def apply_corrections(location=None):
+def apply_corrections(location=None, simulation:bool=False, sim_events:pd.DataFrame=None):
     """Applique les corrections aux stocks avec cache"""
     # Récupérer les événements de correction avec cache
     corrections = get_cached_events_for_compute(location)
-    wagons_count_df = compute_stocks_cached(location)
+    wagons_count_df = compute_stocks_cached(location, simulation=simulation, sim_events=sim_events)
     
     if corrections.empty:
         return wagons_count_df
@@ -169,12 +169,14 @@ def apply_corrections(location=None):
     
     return wagons_count_df1
 
-
-def compute_stocks(location=None):
+def compute_stocks(location=None, simulation:bool=False, sim_events:pd.DataFrame=None):
     """Calcule les stocks de wagons pour une période donnée et une localisation donnée avec optimisation"""
 
-    # Récupérer les données des trains avec cache
-    trains_data = get_cached_trains_data_for_compute(location)
+    if not simulation:
+        # Récupérer les données des trains avec cache
+        trains_data = get_cached_trains_data_for_compute(location)
+    else:
+        trains_data = apply_simulation(get_cached_trains_data_for_compute(None), location, sim_events)
     
     # Vérifier si les données sont vides
     if trains_data.empty:
@@ -221,7 +223,7 @@ def compute_stocks(location=None):
                     'change': nb_wagons,  # Le train arrive dans ce lieu
                 }
                 if location == "AMB":
-                    to_append['status'] = "pleins" if row['TYPE'] == "Evac" else "vides"
+                    to_append['status'] = "pleins" if row['TYPE'] == "Evac" or row['TYPE'] == "Chargés" else "vides"
                 events.append(to_append)
 
     # Vérifier si des événements ont été créés
@@ -268,3 +270,40 @@ def compute_stocks(location=None):
         train_count_df = train_count_df[train_count_df['location'] == location]
     
     return train_count_df
+
+def apply_simulation(all_trains_data, location, sim_events):
+    """Applique une simulation aux stocks"""
+
+    for _, row in sim_events.iterrows():
+        if row["MODIFICATION_TYPE"] == "added":
+            new_row = {
+                "TRAIN_ID": "SIM_"+row["DEPARTURE_POINT"]+"_"+row["ARRIVAL_POINT"]+"_"+row["DEPARTURE_TIME"].strftime("%Y%m%d"),
+                "DEPARTURE_POINT": row["DEPARTURE_POINT"],
+                "ARRIVAL_POINT": row["ARRIVAL_POINT"],
+                "DEPARTURE_DATE": row["DEPARTURE_TIME"],
+                "ARRIVAL_DATE": row["ARRIVAL_TIME"],
+                "NB_WAGONS": row["NB_WAGONS"],
+                "TYPE": "Vides" if row["IS_EMPTY"] else "Chargés",
+            }
+            all_trains_data = pd.concat([all_trains_data, pd.DataFrame([new_row])], ignore_index=True)
+        elif row["MODIFICATION_TYPE"] == "deleted":
+            all_trains_data = all_trains_data[all_trains_data["TRAIN_ID"] != row["TRAIN_ID"]]
+        elif row["MODIFICATION_TYPE"] == "modified":
+            all_trains_data.loc[all_trains_data["TRAIN_ID"] == row["TRAIN_ID"], ["DEPARTURE_DATE", "ARRIVAL_DATE", "DEPARTURE_POINT", "ARRIVAL_POINT", "NB_WAGONS", "TYPE"]] = [
+                row["DEPARTURE_TIME"],
+                row["ARRIVAL_TIME"], 
+                row["DEPARTURE_POINT"],
+                row["ARRIVAL_POINT"],
+                row["NB_WAGONS"],
+                "Vides" if row["IS_EMPTY"] else "Chargés"
+            ]
+
+    all_trains_data = all_trains_data.sort_values(by="DEPARTURE_DATE").reset_index(drop=True)
+    if location is not None:
+        all_trains_data = all_trains_data[
+            (all_trains_data["DEPARTURE_POINT"] == location) | 
+            (all_trains_data["ARRIVAL_POINT"] == location)
+        ]
+
+
+    return all_trains_data

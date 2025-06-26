@@ -767,13 +767,23 @@ def delete_sim_event(simulation_id, modification_type, train_id=None, departure_
                 
             if departure_time is not None and pd.notna(departure_time):
                 query += " AND departure_time = ?"
-                params.append(departure_time)
+                # Convertir le timestamp en chaîne pour Snowflake
+                if hasattr(departure_time, 'strftime'):
+                    departure_time_str = departure_time.strftime('%Y-%m-%d %H:%M:%S')
+                else:
+                    departure_time_str = str(departure_time)
+                params.append(departure_time_str)
             else:
                 query += " AND departure_time IS NULL"
                 
             if arrival_time is not None and pd.notna(arrival_time):
                 query += " AND arrival_time = ?"
-                params.append(arrival_time)
+                # Convertir le timestamp en chaîne pour Snowflake
+                if hasattr(arrival_time, 'strftime'):
+                    arrival_time_str = arrival_time.strftime('%Y-%m-%d %H:%M:%S')
+                else:
+                    arrival_time_str = str(arrival_time)
+                params.append(arrival_time_str)
             else:
                 query += " AND arrival_time IS NULL"
                 
@@ -820,13 +830,23 @@ def delete_sim_event(simulation_id, modification_type, train_id=None, departure_
                 
             if departure_time is not None and pd.notna(departure_time):
                 query += " AND departure_time = %s"
-                params.append(departure_time)
+                # Convertir le timestamp en chaîne pour Snowflake
+                if hasattr(departure_time, 'strftime'):
+                    departure_time_str = departure_time.strftime('%Y-%m-%d %H:%M:%S')
+                else:
+                    departure_time_str = str(departure_time)
+                params.append(departure_time_str)
             else:
                 query += " AND departure_time IS NULL"
                 
             if arrival_time is not None and pd.notna(arrival_time):
                 query += " AND arrival_time = %s"
-                params.append(arrival_time)
+                # Convertir le timestamp en chaîne pour Snowflake
+                if hasattr(arrival_time, 'strftime'):
+                    arrival_time_str = arrival_time.strftime('%Y-%m-%d %H:%M:%S')
+                else:
+                    arrival_time_str = str(arrival_time)
+                params.append(arrival_time_str)
             else:
                 query += " AND arrival_time IS NULL"
                 
