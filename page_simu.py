@@ -619,7 +619,7 @@ def show_simulation_list():
                 
                 with col_buttons:
                     st.write("")  # Espace pour aligner avec le conteneur
-                    if st.button(f"✏️", key=f"edit_sim_{sim['id']}", help="Modifier la simulation"):
+                    if st.button(f"👁️", key=f"edit_sim_{sim['id']}", help="Voir/modifier la simulation"):
                         # Définir les paramètres de session pour la simulation existante
                         st.session_state.simulation_id = sim['id']
                         st.session_state.simulation_name = sim['name']
@@ -712,19 +712,30 @@ def show_simulation_view():
             st.write("#### Évolution des stocks de wagons - AMB")
             real_stocks_df['isSimulation'] = real_stocks_df['status']+"- Réel"
             stocks_df['isSimulation'] = stocks_df['status']+"- Simulation"
-            compare_stocks_df = pd.concat([real_stocks_df, stocks_df], ignore_index=True)
+            # Mettre les données réelles en premier pour qu'elles soient prioritaires
+            compare_stocks_df = pd.concat([stocks_df, real_stocks_df], ignore_index=True)
+            
+            # Définir l'ordre des couleurs pour correspondre à vos spécifications
+            color_map = {
+                'vides- Réel': '#1f77b4',      # bleu foncé
+                'vides- Simulation': '#87ceeb', # bleu clair
+                'pleins- Réel': '#d62728',      # rouge foncé
+                'pleins- Simulation': '#ff9999'  # rouge clair
+            }
+            
             fig = px.line(compare_stocks_df, 
                          x='datetime', 
                          y='nombre_wagons', 
                          color='isSimulation',
                          labels={'datetime': 'Date et heure', 'nombre_wagons': 'Nombre de wagons', 'isSimulation': 'Simulation'},
                          hover_data=['isSimulation', 'nombre_wagons'],
-                         line_shape='hv')  # Créneaux horizontaux-verticaux
+                         line_shape='hv',
+                         color_discrete_map=color_map)  # Créneaux horizontaux-verticaux
         else:
             st.write(f"#### Évolution des stocks de wagons - {selected_location}")  
             real_stocks_df['isSimulation'] = "Réel"
             stocks_df['isSimulation'] = "Simulation"
-            compare_stocks_df = pd.concat([real_stocks_df, stocks_df], ignore_index=True)
+            compare_stocks_df = pd.concat([stocks_df, real_stocks_df], ignore_index=True)
             # Graphique pour une localisation spécifique
             fig = px.line(compare_stocks_df, 
                          x='datetime', 
